@@ -15,6 +15,7 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [showSettings, setShowSettings] = useState(false);
   const [configured, setConfigured] = useState(false);
+  const [supportsVision, setSupportsVision] = useState(false);
   const [toast, setToast] = useState("");
 
   const refreshTopics = useCallback(async () => {
@@ -29,6 +30,8 @@ export default function App() {
   const refreshConfigured = useCallback(async () => {
     const p = await api.getProfile();
     setConfigured(Boolean(p && p.model));
+    setSupportsVision(Boolean(p?.supports_vision));
+    setSupportsVision(Boolean(p?.supports_vision));
   }, []);
 
   useEffect(() => {
@@ -196,6 +199,7 @@ export default function App() {
               selectedCount={selected.length}
               selectedIds={selected}
               configured={configured}
+              supportsVision={supportsVision}
               onOpenSettings={() => setShowSettings(true)}
             />
           </section>

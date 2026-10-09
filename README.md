@@ -73,12 +73,36 @@ Every mode's prompt is editable in Settings → Prompt templates. Placeholders:
 field on the main panel appends a one-off instruction without changing saved
 prompts.
 
+When images are attached, a short note is appended telling the model to trust
+the pixels over the extracted text where the two disagree.
+
+## Vision
+
+Off by default. In **Settings → Vision**, tick *Send screenshots to the model as
+images* and hit **Detect capability**.
+
+Detection matters because a text-only model does not error when handed image
+parts — it ignores them and answers from the text alone, which looks like a bad
+answer rather than a capability gap. The probe sends a synthetic image with the
+string `7319` and checks whether it comes back; the verdict is saved on the
+profile. The tutor panel also exposes a per-call `images: auto / always / never`
+selector, where `auto` follows the saved setting.
+
+Images are downscaled to a 1568px long edge and recompressed as JPEG before
+sending. One unreadable file degrades to a note in the prompt rather than
+failing the whole request.
+
 ## Notes on OCR
 
 Screenshots are converted to greyscale and upscaled 2× before tesseract runs;
 without that, small UI text OCRs poorly. Accuracy is good on normal-size text and
-degrades on very small or low-contrast text — for dense diagrams, paste the
-source text if you have it.
+degrades on very small or low-contrast text.
+
+**Better path for dense diagrams:** turn on vision (Settings → Vision) and the
+image is sent to the model as actual pixels alongside the OCR text. Hit
+**Detect capability** first — it sends a test image and tells you whether your
+model can actually see, since text-only models ignore image parts silently. The
+tutor panel also has a per-request `images: auto / always / never` selector.
 
 ## Layout
 
@@ -88,7 +112,8 @@ backend/app/
   routes.py     all HTTP endpoints
   models.py     SQLAlchemy tables
   extract.py    per-format text extraction
-  llm.py        OpenAI-compatible client + default prompts
+  llm.py        OpenAI-compatible client, vision, default prompts
+  migrations.py additive schema upgrades on startup
   syllabus.py   NCA-AIIO topic seed data
 frontend/src/
   App.tsx        layout + state

@@ -83,6 +83,8 @@ class LlmProfile(Base):
     model: Mapped[str] = mapped_column(String(255), default="")
     api_key: Mapped[str] = mapped_column(String(512), default="")
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    supports_vision: Mapped[bool] = mapped_column(Boolean, default=False)
+    last_probe: Mapped[dict] = mapped_column(JSONB, default=dict)
     temperature: Mapped[float] = mapped_column(default=0.3)
     max_tokens: Mapped[int] = mapped_column(Integer, default=1500)
     prompts: Mapped[dict] = mapped_column(JSONB, default=dict)

@@ -13,7 +13,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from .config import settings
 from .db import get_session
 from .extract import extract_text
-from .llm import DEFAULT_PROMPTS, PROMPT_KEYS, build_messages, call_llm
+from .llm import (
+    DEFAULT_PROMPTS,
+    PROMPT_KEYS,
+    VISION_NOTE,
+    build_messages,
+    call_llm,
+    call_llm_vision_probe,
+    prepare_image,
+)
 from .models import Asset, LlmProfile, Note, Topic
 from .schemas import (
     AiRequest,
@@ -239,6 +247,8 @@ def _profile_out(p: LlmProfile) -> LlmProfileOut:
             "base_url": p.base_url,
             "model": p.model,
             "is_active": p.is_active,
+            "supports_vision": p.supports_vision,
+            "last_probe": p.last_probe or {},
             "temperature": p.temperature,
             "max_tokens": p.max_tokens,
             "prompts": p.prompts or {},
@@ -269,6 +279,8 @@ async def put_profile(payload: LlmProfileIn, session: AsyncSession = Depends(get
     row.base_url = payload.base_url
     row.model = payload.model
     row.is_active = payload.is_active
+    if payload.supports_vision is not None:
+        row.supports_vision = payload.supports_vision
     row.temperature = payload.temperature
     row.max_tokens = payload.max_tokens
     if payload.api_key is not None:
@@ -280,6 +292,41 @@ async def put_profile(payload: LlmProfileIn, session: AsyncSession = Depends(get
     await session.commit()
     await session.refresh(row)
     return _profile_out(row)
+
+
+@router.post("/llm/vision-check")
+async def vision_check(send: bool = False, session: AsyncSession = Depends(get_session)):
+    """Probe whether the configured model can actually read an attached image.
+
+    Always reports a verdict. With send=false it is purely informational (no
+    call is made); with send=true it sends a synthetic image and checks whether
+    the model reports the text inside it.
+    """
+    row = (await session.execute(select(LlmProfile).order_by(LlmProfile.id).limit(1))).scalars().first()
+    if not row:
+        raise HTTPException(400, "no LLM profile configured yet")
+    if not row.model:
+        raise HTTPException(400, "no model set in Settings yet")
+
+    if not send:
+        return {
+            "sent": False,
+            "supports_vision": row.supports_vision,
+            "last_probe": row.last_probe or {},
+            "hint": "POST with ?send=true to actually test the endpoint.",
+        }
+
+    result = await call_llm_vision_probe(
+        base_url=row.base_url, api_key=row.api_key, model=row.model
+    )
+    result["sent"] = True
+    if result.get("verdict") == "vision":
+        row.supports_vision = True
+    elif result.get("verdict") == "no-vision":
+        row.supports_vision = False
+    row.last_probe = result
+    await session.commit()
+    return result
 
 
 @router.post("/llm/test")
@@ -321,26 +368,56 @@ async def ai_assist(payload: AiRequest, session: AsyncSession = Depends(get_sess
     topic_label = topic.title if topic else "general NCA-AIIO material"
     confidence = topic.confidence if topic else 0
 
-    material_parts: list[str] = []
+    gathered: list[Asset] = []
     if payload.asset_ids:
-        rows = (
-            await session.execute(select(Asset).where(Asset.id.in_(payload.asset_ids)))
-        ).scalars().all()
-        for a in rows:
-            body = (a.extracted_text or "").strip()
-            if body:
-                material_parts.append(f"[{a.filename}]\n{body}")
-            else:
-                material_parts.append(f"[{a.filename}] (no text extracted: {a.extraction_error or 'empty'})")
+        gathered = list(
+            (await session.execute(select(Asset).where(Asset.id.in_(payload.asset_ids))))
+            .scalars()
+            .all()
+        )
     elif topic:
-        rows = (
-            await session.execute(
-                select(Asset).where(Asset.topic_id == topic.id).order_by(Asset.created_at.desc()).limit(6)
+        gathered = list(
+            (
+                await session.execute(
+                    select(Asset)
+                    .where(Asset.topic_id == topic.id)
+                    .order_by(Asset.created_at.desc())
+                    .limit(6)
+                )
             )
-        ).scalars().all()
-        for a in rows:
-            if (a.extracted_text or "").strip():
-                material_parts.append(f"[{a.filename}]\n{a.extracted_text.strip()}")
+            .scalars()
+            .all()
+        )
+
+    material_parts: list[str] = []
+    for a in gathered:
+        body = (a.extracted_text or "").strip()
+        if body:
+            material_parts.append(f"[{a.filename}]\n{body}")
+        elif a.kind == "image":
+            material_parts.append(f"[{a.filename}] (image, no OCR text: {a.extraction_error or 'empty'})")
+        else:
+            material_parts.append(f"[{a.filename}] (no text extracted: {a.extraction_error or 'empty'})")
+
+    # Vision: attach image assets directly when enabled. A per-request flag wins
+    # over the saved profile setting.
+    want_vision = payload.use_vision if payload.use_vision is not None else profile.supports_vision
+    images: list[str] = []
+    image_notes: list[str] = []
+    if want_vision:
+        for a in gathered:
+            if a.kind != "image":
+                continue
+            data_url, note = prepare_image(a.stored_path)
+            if data_url:
+                images.append(data_url)
+                image_notes.append(note)
+            else:
+                image_notes.append(f"SKIPPED {note}")
+        if images:
+            material_parts.append(
+                "Attached images: " + "; ".join(image_notes)
+            )
 
     material = "\n\n".join(material_parts).strip() or "(no material supplied)"
     budget = 24000
@@ -354,7 +431,7 @@ async def ai_assist(payload: AiRequest, session: AsyncSession = Depends(get_sess
         "question": payload.question or "(none given)",
         "count": payload.count,
     }
-    messages = build_messages(payload.feature, profile.prompts or {}, **kwargs)
+    messages = build_messages(payload.feature, profile.prompts or {}, images=images, **kwargs)
     if payload.extra:
         messages.append({"role": "user", "content": payload.extra})
 

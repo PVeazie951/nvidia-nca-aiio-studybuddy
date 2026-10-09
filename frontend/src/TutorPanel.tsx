@@ -9,6 +9,7 @@ type Props = {
   selectedCount: number;
   selectedIds: number[];
   configured: boolean;
+  supportsVision: boolean;
   onOpenSettings: () => void;
 };
 
@@ -25,6 +26,7 @@ export default function TutorPanel({
   selectedCount,
   selectedIds,
   configured,
+  supportsVision,
   onOpenSettings,
 }: Props) {
   const [feature, setFeature] = useState<AiFeature>("whiteboard");
@@ -35,6 +37,7 @@ export default function TutorPanel({
   const [result, setResult] = useState<AiResponse | null>(null);
   const [error, setError] = useState("");
   const [history, setHistory] = useState<AiResponse[]>([]);
+  const [visionMode, setVisionMode] = useState<"auto" | "on" | "off">("auto");
 
   const needsQuestion = feature === "hint" || feature === "explain";
 
@@ -49,6 +52,7 @@ export default function TutorPanel({
         question,
         count,
         extra,
+        use_vision: visionMode === "auto" ? null : visionMode === "on",
       });
       setResult(res);
       setHistory((h) => [res, ...h].slice(0, 12));
@@ -111,7 +115,7 @@ export default function TutorPanel({
           placeholder="Optional extra instruction for the model…"
           className="w-full rounded-md border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-xs text-slate-200 outline-none focus:border-emerald-500"
         />
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <button
             onClick={run}
             disabled={busy}
@@ -126,6 +130,21 @@ export default function TutorPanel({
                 ? "using newest files for this topic"
                 : "using newest files overall"}
           </span>
+          <label
+            className="ml-auto flex items-center gap-1.5 text-[11px] text-slate-500"
+            title="Whether image files are sent to the model as pixels"
+          >
+            images
+            <select
+              value={visionMode}
+              onChange={(e) => setVisionMode(e.target.value as "auto" | "on" | "off")}
+              className="rounded border border-slate-700 bg-slate-900 px-1.5 py-1 text-[11px] text-slate-300"
+            >
+              <option value="auto">auto ({supportsVision ? "on" : "off"})</option>
+              <option value="on">always</option>
+              <option value="off">never</option>
+            </select>
+          </label>
         </div>
         {!configured && (
           <div className="rounded-md border border-amber-600/40 bg-amber-500/10 px-2.5 py-2 text-[11px] text-amber-300">

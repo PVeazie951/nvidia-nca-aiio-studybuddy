@@ -82,8 +82,34 @@ FastAPI (127.0.0.1:8077)
 
 `POST /api/ai` → load profile → resolve topic label + confidence → gather
 material from `asset_ids` (or newest 6 for the topic if none selected) → truncate
-to 24,000 chars → `str.format()` the chosen template → append optional extra
-instruction → call endpoint → return content + model + elapsed ms.
+to 24,000 chars → `str.format()` the chosen template → attach image assets as
+base64 image parts if vision is on → append optional extra instruction → call
+endpoint → return content + model + elapsed ms.
+
+### Vision (images to the model)
+
+Text-only models get OCR output and nothing else. With vision enabled, image
+assets are *also* sent as real pixels in the same request, so the model can read
+diagrams, port counts and part numbers that OCR mangles.
+
+- Toggle lives in **Settings → Vision**; the tutor panel has a per-request
+  override (`images: auto | always | never`). `auto` follows the saved setting.
+- **Detect capability** sends a synthetic image containing the string `7319` and
+  checks whether the model reports it back. The verdict is stored on the profile
+  as `last_probe` — a text-only model silently *ignores* image parts rather than
+  erroring, so probing is the only reliable way to know.
+- Images are downscaled to a 1568px long edge and JPEG-recompressed (quality
+  stepped down 85 → 40) before sending. A single unreadable image degrades to a
+  note in the prompt instead of failing the request.
+- The vision note tells the model to trust the pixels over the extracted text
+  where the two disagree.
+
+### Schema migrations
+
+`create_all()` never adds columns to an existing table, so `app/migrations.py`
+applies additive column changes on startup (currently `llm_profiles.supports_vision`
+and `llm_profiles.last_probe`). Existing databases upgrade in place — no drop and
+recreate needed.
 
 ---
 
@@ -226,18 +252,22 @@ Every claim below was checked with real execution, not assumed:
 - Production build clean (`tsc -b` exit 0, `vite build` 291 modules).
 - Known bug found and fixed during review: "All material" count excluded
   unassigned files; now reconciles with the material header.
+- Vision, added after the first release and verified: profile PUT persists
+  `supports_vision`; `/api/ai` attaches 2 image parts when enabled and 0 when the
+  per-request override is off; a text-only asset adds no parts; the probe returns
+  `verdict: vision` against a mock that reads the image and `no-vision` against
+  one that cannot; migration added both columns to the existing database with no
+  drop/recreate; driven in a real browser — checkbox → save → Detect capability →
+  "Vision detected", then Ask tutor returned the mock's vision marker.
 
 ---
 
 ## 10. Next steps (ranked)
 
-1. **Vision path for screenshots.** Send images to a vision-capable model
-   instead of OCR. Highest value for topology diagrams, which is exactly the
-   material this exam leans on.
-2. **Progress/spaced repetition.** Topics have confidence ratings but nothing
+1. **Progress/spaced repetition.** Topics have confidence ratings but nothing
    schedules review. A simple SM-2 queue over weak topics would make the tool
    actually drive study rather than just store it.
-3. **Serve built assets from FastAPI** for a single-process run instead of two
+2. **Serve built assets from FastAPI** for a single-process run instead of two
    dev servers.
-4. **Per-asset chunking** so long PDFs aren't truncated at 24k chars.
-5. **Export** — dump a topic's material + notes + quiz results to markdown.
+3. **Per-asset chunking** so long PDFs aren't truncated at 24k chars.
+4. **Export** — dump a topic's material + notes + quiz results to markdown.

@@ -36,6 +36,13 @@ export type LlmProfile = {
   model: string;
   has_key: boolean;
   is_active: boolean;
+  supports_vision: boolean;
+  last_probe: {
+    ok?: boolean;
+    verdict?: "vision" | "no-vision" | "error";
+    reply?: string;
+    detail?: string;
+  };
   temperature: number;
   max_tokens: number;
   prompts: Record<string, string>;
@@ -114,6 +121,16 @@ export const api = {
     method: "POST",
   }),
   defaultPrompts: () => req<{ prompts: Record<string, string>; keys: string[] }>("/api/llm/default-prompts"),
+  visionCheck: (send = false) =>
+    req<{
+      sent: boolean;
+      ok?: boolean;
+      verdict?: "vision" | "no-vision" | "error";
+      reply?: string;
+      detail?: string;
+      supports_vision?: boolean;
+      hint?: string;
+    }>(`/api/llm/vision-check?send=${send}`, { method: "POST" }),
 
   ai: (payload: {
     feature: AiFeature;
@@ -122,5 +139,6 @@ export const api = {
     question?: string;
     count?: number;
     extra?: string;
+    use_vision?: boolean | null;
   }) => req<AiResponse>("/api/ai", json("POST", payload)),
 };

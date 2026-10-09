@@ -65,6 +65,8 @@ class LlmProfileOut(BaseModel):
     model: str
     has_key: bool = False
     is_active: bool
+    supports_vision: bool = False
+    last_probe: dict = {}
     temperature: float
     max_tokens: int
     prompts: dict
@@ -76,6 +78,7 @@ class LlmProfileIn(BaseModel):
     model: str = ""
     api_key: str | None = None
     is_active: bool = True
+    supports_vision: bool | None = None
     temperature: float = 0.3
     max_tokens: int = 1500
     prompts: dict | None = None
@@ -88,6 +91,7 @@ class AiRequest(BaseModel):
     question: str = ""
     count: int = 5
     extra: str = ""
+    use_vision: bool | None = None  # None -> follow the profile setting
 
 
 class AiResponse(BaseModel):

@@ -12,6 +12,8 @@ export default function Settings({ onClose, onSaved }: Props) {
   const [apiKey, setApiKey] = useState("");
   const [temperature, setTemperature] = useState(0.3);
   const [maxTokens, setMaxTokens] = useState(1500);
+  const [supportsVision, setSupportsVision] = useState(false);
+  const [probe, setProbe] = useState("");
   const [prompts, setPrompts] = useState<Record<string, string>>({});
   const [defaults, setDefaults] = useState<Record<string, string>>({});
   const [activeKey, setActiveKey] = useState<(typeof KEYS)[number]>("whiteboard");
@@ -29,6 +31,7 @@ export default function Settings({ onClose, onSaved }: Props) {
         setModel(p.model);
         setTemperature(p.temperature);
         setMaxTokens(p.max_tokens);
+        setSupportsVision(p.supports_vision ?? false);
         setPrompts({ ...d.prompts, ...(p.prompts ?? {}) });
       } else {
         setPrompts({ ...d.prompts });
@@ -47,6 +50,7 @@ export default function Settings({ onClose, onSaved }: Props) {
         ...(apiKey ? { api_key: apiKey } : {}),
         temperature,
         max_tokens: maxTokens,
+        supports_vision: supportsVision,
         prompts,
       });
       setProfile(saved);
@@ -55,6 +59,28 @@ export default function Settings({ onClose, onSaved }: Props) {
       onSaved();
     } catch (e) {
       setStatus(`Save failed: ${(e as Error).message}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function detectVision() {
+    setBusy(true);
+    setProbe("");
+    try {
+      await save();
+      const r = await api.visionCheck(true);
+      if (r.verdict === "vision") {
+        setSupportsVision(true);
+        setProbe("Vision detected — images will be sent as actual pixels.");
+      } else if (r.verdict === "no-vision") {
+        setSupportsVision(false);
+        setProbe("Model ignored the test image — treating it as text-only.");
+      } else {
+        setProbe(`Probe failed: ${r.detail ?? "unknown error"}`);
+      }
+    } catch (e) {
+      setProbe(`Probe failed: ${(e as Error).message}`);
     } finally {
       setBusy(false);
     }
@@ -145,6 +171,42 @@ export default function Settings({ onClose, onSaved }: Props) {
                 />
               </label>
             </div>
+          </div>
+
+          <div className="rounded-md border border-slate-800 bg-slate-900/40 p-3">
+            <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+              Vision
+            </div>
+            <label className="flex cursor-pointer items-start gap-2.5">
+              <input
+                type="checkbox"
+                checked={supportsVision}
+                onChange={(e) => setSupportsVision(e.target.checked)}
+                className="mt-0.5 h-4 w-4 accent-emerald-500"
+              />
+              <span className="text-[12px] text-slate-300">
+                Send screenshots to the model as images
+                <span className="block text-[10px] text-slate-500">
+                  On: image assets are attached as pixels alongside their OCR text. Off:
+                  text-only. Leave off for text-only models — they ignore the pixels.
+                </span>
+              </span>
+            </label>
+            <div className="mt-2 flex items-center gap-2">
+              <button
+                onClick={detectVision}
+                disabled={busy}
+                className="rounded-md border border-slate-700 px-2.5 py-1 text-[11px] text-slate-300 hover:bg-slate-800 disabled:opacity-40"
+              >
+                Detect capability
+              </button>
+              {profile?.last_probe?.verdict && (
+                <span className="text-[10px] text-slate-500">
+                  last probe: {profile.last_probe.verdict}
+                </span>
+              )}
+            </div>
+            {probe && <div className="mt-1.5 text-[11px] text-slate-300">{probe}</div>}
           </div>
 
           <div className="rounded-md border border-slate-800 bg-slate-900/40 p-3">

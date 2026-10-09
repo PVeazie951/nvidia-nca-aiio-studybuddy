@@ -8,7 +8,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import select
 
 from .config import settings
-from .db import SessionLocal, init_db
+from .db import SessionLocal, engine, init_db
+from .migrations import apply_migrations
 from .models import LlmProfile, Topic
 from .routes import router
 from .syllabus import SEED_TOPICS
@@ -33,6 +34,8 @@ async def seed() -> None:
 async def lifespan(app: FastAPI):
     Path(settings.upload_dir).mkdir(parents=True, exist_ok=True)
     await init_db()
+    # create_all() never adds columns to an existing table.
+    await apply_migrations(engine)
     await seed()
     yield
 
